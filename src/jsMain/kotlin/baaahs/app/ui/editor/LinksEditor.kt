@@ -45,8 +45,10 @@ val LinksEditor = xComponent<LinksEditorProps>("LinksEditor") { props ->
         }
 
     val shaderInstance = props.mutableShaderInstance
-    val shader = shaderInstance.mutableShader
-    val openShader = appContext.showPlayer.openShaderOrNull(shader.build())
+    val shader = shaderInstance.mutableShader.build()
+    val openShader = memo(shader) {
+        appContext.showPlayer.openShaderOrNull(shader)
+    }
     val inputPorts = openShader?.inputPorts
         ?.sortedBy { it.title }
         ?.associateWith { inputPort ->
