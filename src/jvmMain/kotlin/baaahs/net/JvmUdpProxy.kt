@@ -4,9 +4,10 @@ import baaahs.Logger
 import baaahs.io.ByteArrayReader
 import baaahs.io.ByteArrayWriter
 import baaahs.net.JvmNetwork.Companion.networkScope
-import io.ktor.http.cio.websocket.Frame
-import io.ktor.http.cio.websocket.readBytes
+import io.ktor.http.cio.websocket.*
 import io.ktor.websocket.DefaultWebSocketServerSession
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.launch
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -45,50 +46,69 @@ class JvmUdpProxy {
             }
         }
 
-        while (true) {
+        var connectionOpen = true
+        while (connectionOpen) {
 //            logger.debug { "UDP: wait for WebSocket command" }
-            val frame = session.incoming.receive()
-//            logger.debug { "UDP: received for WebSocket command!" }
-            if (frame is Frame.Binary) {
-                val bytes = frame.readBytes()
-                ByteArrayReader(bytes).apply {
-                    val op = readByte()
-                    when (op) {
-                        Network.UdpProxy.LISTEN_OP.toByte() -> {
-                            socket = DatagramSocket() // We'll take any port the system gives us.
-                            listenThread.start()
-                            logger.debug { "UDP: Listening on ${socket!!.localPort}" }
-                        }
-                        Network.UdpProxy.SEND_OP.toByte() -> {
-                            val toAddress = readBytes()
-                            val toPort = readInt()
-                            val data = readBytes()
-                            val toInetAddress = InetAddress.getByAddress(toAddress)
-                            val packet = DatagramPacket(data, 0, data.size, toInetAddress, toPort)
-                            networkScope.launch {
-//                                logger.debug { "UDP: Will send ${data.size} ${msgId(data)} to $toInetAddress:$toPort" }
-                                socket!!.send(packet)
-//                                logger.debug { "UDP: Sent ${data.size} ${msgId(data)} to $toInetAddress:$toPort" }
+            //            logger.debug { "UDP: received for WebSocket command!" }
+            val frame = try {
+                session.incoming.receive()
+            } catch (e: ClosedReceiveChannelException) {
+                logger.debug { "Connection closed unexpectedly: ${e.message}" }
+                connectionOpen = false
+                continue
+            }
+
+            when (frame) {
+                is Frame.Binary -> {
+                    val bytes = frame.readBytes()
+                    ByteArrayReader(bytes).apply {
+                        val op = readByte()
+                        when (op) {
+                            Network.UdpProxy.LISTEN_OP.toByte() -> {
+                                socket = DatagramSocket() // We'll take any port the system gives us.
+                                listenThread.start()
+                                logger.debug { "UDP: Listening on ${socket!!.localPort}" }
                             }
-                        }
-                        Network.UdpProxy.BROADCAST_OP.toByte() -> {
-                            val toPort = readInt()
-                            val data = readBytes()
-                            val packet = DatagramPacket(data, 0, data.size,
-                                JvmNetwork.broadcastAddress, toPort)
-                            networkScope.launch {
-//                                logger.debug { "UDP: Will broadcast ${data.size} ${msgId(data)} to *:$toPort" }
-                                socket!!.send(packet)
-//                                logger.debug { "UDP: Broadcast ${data.size} ${msgId(data)} to *:$toPort" }
+                            Network.UdpProxy.SEND_OP.toByte() -> {
+                                val toAddress = readBytes()
+                                val toPort = readInt()
+                                val data = readBytes()
+                                val toInetAddress = InetAddress.getByAddress(toAddress)
+                                val packet = DatagramPacket(data, 0, data.size, toInetAddress, toPort)
+                                networkScope.launch {
+        //                                logger.debug { "UDP: Will send ${data.size} ${msgId(data)} to $toInetAddress:$toPort" }
+                                    socket!!.send(packet)
+        //                                logger.debug { "UDP: Sent ${data.size} ${msgId(data)} to $toInetAddress:$toPort" }
+                                }
                             }
-                        }
-                        else -> {
-                            logger.warn { "UDP: Huh? unknown op $op: $bytes" }
+                            Network.UdpProxy.BROADCAST_OP.toByte() -> {
+                                val toPort = readInt()
+                                val data = readBytes()
+                                val packet = DatagramPacket(data, 0, data.size,
+                                    JvmNetwork.broadcastAddress, toPort)
+                                networkScope.launch {
+        //                                logger.debug { "UDP: Will broadcast ${data.size} ${msgId(data)} to *:$toPort" }
+                                    socket!!.send(packet)
+        //                                logger.debug { "UDP: Broadcast ${data.size} ${msgId(data)} to *:$toPort" }
+                                }
+                            }
+                            else -> {
+                                logger.warn { "UDP: Huh? unknown op $op: $bytes" }
+                            }
                         }
                     }
                 }
-            } else {
-                logger.warn { "wait huh? received weird data: $frame" }
+
+                is Frame.Close -> {
+                    val reason = frame.readReason()
+                    logger.debug { "Connection closed: $reason"}
+                    connectionOpen = false
+                    session.cancel("Connection closed: $reason")
+                }
+
+                else -> {
+                    logger.warn { "wait huh? received weird data: $frame" }
+                }
             }
         }
     }

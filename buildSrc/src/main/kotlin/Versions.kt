@@ -3,6 +3,7 @@ object Versions {
     const val coroutines = "1.3.9"
     const val coroutinesTest = "1.3.9"
     const val serializationRuntime = "1.0.0-RC"
+    const val koin = "3.0.0-alpha-4"
     const val ktor = "1.4.0"
     const val kgl = "0.3-baaahs"
     const val jogl = "2.3.2"

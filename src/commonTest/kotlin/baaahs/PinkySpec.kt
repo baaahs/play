@@ -1,65 +1,53 @@
 package baaahs
 
 import baaahs.fixtures.AnonymousFixture
+import baaahs.fixtures.FixtureManager
 import baaahs.fixtures.IdentifiedFixture
 import baaahs.geom.Matrix4
 import baaahs.gl.override
-import baaahs.gl.render.RenderEngine
 import baaahs.mapper.MappingSession
 import baaahs.mapper.Storage
 import baaahs.model.Model
-import baaahs.model.ModelInfo
 import baaahs.models.SheepModel
 import baaahs.net.FragmentingUdpLink
+import baaahs.net.Network
 import baaahs.net.TestNetwork
 import baaahs.plugin.Plugins
 import baaahs.proto.BrainHelloMessage
 import baaahs.proto.Type
 import baaahs.show.SampleData
-import baaahs.shows.FakeGlContext
-import baaahs.sim.FakeDmxUniverse
 import baaahs.sim.FakeFs
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.InternalCoroutinesApi
-import kotlinx.coroutines.Runnable
+import org.koin.core.context.startKoin
+import org.koin.core.context.stopKoin
+import org.koin.core.qualifier.named
+import org.koin.dsl.module
 import org.spekframework.spek2.Spek
 import org.spekframework.spek2.style.specification.describe
-import kotlin.coroutines.CoroutineContext
 import kotlin.test.expect
 
 @InternalCoroutinesApi
 object PinkySpec : Spek({
     describe("Pinky") {
-        val fakeGlslContext by value { FakeGlContext() }
-        val network by value { TestNetwork(1_000_000) }
+        val panel17 = SheepModel.Panel("17")
+        val koin by value {
+            startKoin {
+                modules(
+                    pinkyModule,
+                    TestPlatformModule(
+                        SheepModel().apply { panels = listOf(panel17) }
+                    ).getModule()
+                )
+            }.koin
+        }
+        val pinkyLink by value { koin.get<Network.Link>(named("non-fragmenting")) as TestNetwork.Link }
         val clientAddress by value { TestNetwork.Address("client") }
         val clientPort = 1234
 
-        val panel17 = SheepModel.Panel("17")
-        val model = SheepModel().apply { panels = listOf(panel17) } as Model<*>
-
+        val model by value { koin.get<Model<*>>() }
         val fakeFs by value { FakeFs() }
-        val pinky by value {
-            Pinky(
-                model,
-                network,
-                FakeDmxUniverse(),
-                StubBeatSource(),
-                FakeClock(),
-                fakeFs,
-                PermissiveFirmwareDaddy(),
-                StubSoundAnalyzer(),
-                renderEngine = RenderEngine(fakeGlslContext, ModelInfo.Empty),
-                plugins = Plugins.safe(),
-                pinkyMainDispatcher = object : CoroutineDispatcher() {
-                    override fun dispatch(context: CoroutineContext, block: Runnable) {
-                        block.run()
-                    }
-                }
-            )
-        }
-        val pinkyLink by value { network.links.only() }
-        val fixtureManager by value { pinky.fixtureManager }
+        val fixtureManager by value { koin.get<FixtureManager>() }
+        val pinky by value { koin.get<Pinky>() }
         val fixtureRenderPlans by value { fixtureManager.getFixtureRenderPlans_ForTestOnly() }
 
         val panelMappings by value { emptyList<Pair<BrainId, Model.Surface>>() }
@@ -84,6 +72,7 @@ object PinkySpec : Spek({
                 pinky.launchStartupJobs()
             }
         }
+        afterEachTest { stopKoin() }
 
         describe("brains reporting to Pinky") {
             val brainHelloMessage by value { nuffin<BrainHelloMessage>() }
@@ -146,7 +135,11 @@ object PinkySpec : Spek({
                         it("should cause no changes") {
                             pinky.renderAndSendNextFrame()
 
-                            pinky.receive(clientAddress, clientPort, BrainHelloMessage("brain1", panel17.name).toBytes())
+                            pinky.receive(
+                                clientAddress,
+                                clientPort,
+                                BrainHelloMessage("brain1", panel17.name).toBytes()
+                            )
                             pinky.updateFixtures()
                             pinky.renderAndSendNextFrame()
                             pinky.renderAndSendNextFrame()
@@ -161,7 +154,11 @@ object PinkySpec : Spek({
                             pinky.renderAndSendNextFrame()
 
                             // Remap to 17L...
-                            pinky.receive(clientAddress, clientPort, BrainHelloMessage("brain1", panel17.name).toBytes())
+                            pinky.receive(
+                                clientAddress,
+                                clientPort,
+                                BrainHelloMessage("brain1", panel17.name).toBytes()
+                            )
                             // ... but a packet also made it through identifying brain1 as unmapped.
                             pinky.receive(clientAddress, clientPort, BrainHelloMessage("brain1", null).toBytes())
                             pinky.updateFixtures()
@@ -170,7 +167,11 @@ object PinkySpec : Spek({
 
                             // Pinky should have sent out another BrainMappingMessage message; todo: verify that!
 
-                            pinky.receive(clientAddress, clientPort, BrainHelloMessage("brain1", panel17.name).toBytes())
+                            pinky.receive(
+                                clientAddress,
+                                clientPort,
+                                BrainHelloMessage("brain1", panel17.name).toBytes()
+                            )
                             pinky.updateFixtures()
                             pinky.renderAndSendNextFrame()
                             pinky.renderAndSendNextFrame()
@@ -178,7 +179,11 @@ object PinkySpec : Spek({
                             expect(1) { fixtureRenderPlans.size }
                             expect(true) { (fixtureRenderPlans.keys.only() as IdentifiedFixture).modelSurface == panel17 }
 
-                            pinky.receive(clientAddress, clientPort, BrainHelloMessage("brain1", panel17.name).toBytes())
+                            pinky.receive(
+                                clientAddress,
+                                clientPort,
+                                BrainHelloMessage("brain1", panel17.name).toBytes()
+                            )
                             pinky.updateFixtures()
                             pinky.renderAndSendNextFrame()
                             pinky.renderAndSendNextFrame()
@@ -190,23 +195,6 @@ object PinkySpec : Spek({
                     }
                 }
             }
-
-
-
         }
     }
 })
-
-class StubBeatSource : BeatSource {
-    override fun getBeatData(): BeatData = BeatData(0.0, 0, confidence = 0f)
-}
-
-class StubSoundAnalyzer : SoundAnalyzer {
-    override val frequencies = floatArrayOf()
-
-    override fun listen(analysisListener: SoundAnalyzer.AnalysisListener) {
-    }
-
-    override fun unlisten(analysisListener: SoundAnalyzer.AnalysisListener) {
-    }
-}

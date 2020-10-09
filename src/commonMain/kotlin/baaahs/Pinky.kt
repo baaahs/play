@@ -8,7 +8,6 @@ import baaahs.fixtures.IdentifiedFixture
 import baaahs.geom.Vector2F
 import baaahs.geom.Vector3F
 import baaahs.gl.glsl.CompilationException
-import baaahs.gl.render.RenderEngine
 import baaahs.io.ByteArrayReader
 import baaahs.io.ByteArrayWriter
 import baaahs.io.Fs
@@ -17,58 +16,39 @@ import baaahs.mapper.PinkyMapperHandlers
 import baaahs.mapper.SessionMappingResults
 import baaahs.mapper.Storage
 import baaahs.model.Model
-import baaahs.net.FragmentingUdpLink
 import baaahs.net.Network
-import baaahs.plugin.Plugins
 import baaahs.proto.*
 import baaahs.shaders.PixelBrainShader
 import baaahs.show.Show
 import baaahs.util.Framerate
 import kotlinx.coroutines.*
 import kotlinx.serialization.Serializable
+import org.koin.core.KoinComponent
 import kotlin.coroutines.CoroutineContext
 
 class Pinky(
-    val model: Model<*>,
-    val network: Network,
-    val dmxUniverse: Dmx.Universe,
-    val beatSource: BeatSource,
-    val clock: Clock,
-    fs: Fs,
-    val firmwareDaddy: FirmwareDaddy,
-    soundAnalyzer: SoundAnalyzer,
+    private val model: Model<*>,
+    private val dmxUniverse: Dmx.Universe,
+    private val beatSource: BeatSource,
+    private val clock: Clock,
+    private val firmwareDaddy: FirmwareDaddy,
+    private val stageManager: StageManager,
     private val switchShowAfterIdleSeconds: Int? = 600,
     private val adjustShowAfterIdleSeconds: Int? = null,
-    renderEngine: RenderEngine,
-    val plugins: Plugins,
-    val pinkyMainDispatcher: CoroutineDispatcher
-) : CoroutineScope, Network.UdpListener {
+    private val storage: Storage,
+    private val fixtureManager: FixtureManager,
+    pubSub: PubSub.Server,
+    private val movingHeadManager: MovingHeadManager,
+    private val link: Network.Link,
+    httpServer: Network.HttpServer,
+    override val coroutineContext: CoroutineContext
+) : KoinComponent, CoroutineScope, Network.UdpListener {
     val facade = Facade()
-    private val storage = Storage(fs, plugins)
     private lateinit var mappingResults: MappingResults
 
-    private val link = FragmentingUdpLink(network.link("pinky"))
-    val httpServer = link.startHttpServer(Ports.PINKY_UI_TCP)
 
     private val beatDisplayer = PinkyBeatDisplayer(beatSource)
     private var mapperIsRunning = false
-
-    private val pinkyJob = SupervisorJob()
-    override val coroutineContext: CoroutineContext = pinkyMainDispatcher + pinkyJob
-
-    private val pubSub: PubSub.Server = PubSub.Server(httpServer, coroutineContext)
-//    private val gadgetManager = GadgetManager(pubSub)
-    private val movingHeadManager = MovingHeadManager(fs, pubSub, model.movingHeads)
-    internal val fixtureManager = FixtureManager(renderEngine)
-
-    var stageManager: StageManager = StageManager(
-        plugins, renderEngine, pubSub, storage, fixtureManager, dmxUniverse, movingHeadManager, clock, model,
-        coroutineContext
-    )
-
-    fun switchTo(newShow: Show?, file: Fs.File? = null) {
-        stageManager.switchTo(newShow, file = file)
-    }
 
 //    private var selectedNewShowAt = DateTime.now()
 
@@ -174,6 +154,10 @@ class Pinky(
             isStartedUp = true
             updatePinkyState(PinkyState.Running)
         }
+    }
+
+    fun switchTo(newShow: Show?, file: Fs.File? = null) {
+        stageManager.switchTo(newShow, file = file)
     }
 
     private fun updatePinkyState(newState: PinkyState) {

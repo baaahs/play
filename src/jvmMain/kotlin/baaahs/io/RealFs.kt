@@ -1,5 +1,7 @@
 package baaahs.io
 
+import java.io.File
+import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
@@ -32,10 +34,12 @@ class RealFs(
         if (!Files.exists(destPath.parent)) {
             Files.createDirectories(destPath.parent)
         }
+        destPath.toFile().writeBytes(content)
         Files.write(
             destPath,
             content,
-            if (allowOverwrite) StandardOpenOption.CREATE else StandardOpenOption.CREATE_NEW
+            if (allowOverwrite) StandardOpenOption.CREATE else StandardOpenOption.CREATE_NEW,
+            StandardOpenOption.TRUNCATE_EXISTING
         )
     }
 

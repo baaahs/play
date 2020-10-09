@@ -8,10 +8,8 @@ import io.ktor.routing.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.websocket.*
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -95,8 +93,11 @@ class JvmNetwork : Network {
             }
         }
 
-        override fun startHttpServer(port: Int): KtorHttpServer =
-            KtorHttpServer(port).also { it.httpServer.start(false) }
+        override fun startHttpServer(port: Int): KtorHttpServer {
+            return KtorHttpServer(port).also {
+                it.httpServer.start(false)
+            }
+        }
 
         override fun connectWebSocket(
             toAddress: Network.Address,
@@ -145,18 +146,37 @@ class JvmNetwork : Network {
                             }
                         }
 
-                        println("Connection from ${this.call.request.host()}…")
+                        logger.debug { "Connection to $path from ${this.call.request.host()}…" }
                         val webSocketListener = onConnect(tcpConnection)
                         webSocketListener.connected(tcpConnection)
 
+                        var connectionOpen = true
                         try {
-                            while (true) {
-                                val frame = incoming.receive()
-                                if (frame is Frame.Binary) {
-                                    val bytes = frame.readBytes()
-                                    webSocketListener.receive(tcpConnection, bytes)
-                                } else {
-                                    println("wait huh? received weird data: $frame")
+                            while (connectionOpen) {
+                                val frame = try {
+                                    incoming.receive()
+                                } catch (e: ClosedReceiveChannelException) {
+                                    logger.debug { "Connection closed unexpectedly: ${e.message}" }
+                                    connectionOpen = false
+                                    continue
+                                }
+
+                                when (frame) {
+                                    is Frame.Binary -> {
+                                        val bytes = frame.readBytes()
+                                        webSocketListener.receive(tcpConnection, bytes)
+                                    }
+
+                                    is Frame.Close -> {
+                                        val reason = frame.readReason()
+                                        logger.debug { "Connection closed: $reason"}
+                                        connectionOpen = false
+                                        cancel("Connection closed: $reason")
+                                    }
+
+                                    else -> {
+                                        logger.warn { "wait huh? received weird data: $frame" }
+                                    }
                                 }
                             }
                         } catch (e: Exception) {
@@ -169,6 +189,8 @@ class JvmNetwork : Network {
                     }
 
                     webSocket("/sm/udpProxy") {
+                        logger.debug { "Connection to /sm/udpProxy from ${this.call.request.host()}…" }
+
                         try {
                             JvmUdpProxy().handle(this)
                         } catch (e: Exception) {

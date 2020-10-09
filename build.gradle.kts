@@ -52,6 +52,7 @@ repositories {
     maven("https://raw.githubusercontent.com/robolectric/spek/mvnrepo/")
     maven("https://dl.bintray.com/subroh0508/maven") // for material-ui
 //    maven("https://maven.danielgergely.com/repository/releases") TODO when next kgl is released
+    maven("https://dl.bintray.com/ekito/koin")
 }
 
 group = "org.baaahs"
@@ -76,6 +77,8 @@ kotlin {
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${Versions.coroutines}")
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:${Versions.serializationRuntime}")
+                implementation("org.koin:koin-core:${Versions.koin}")
+//                implementation("org.koin:koin-core-ext:${Versions.koin}")
                 implementation("com.soywiz.korlibs.klock:klock:1.12.0")
                 api("com.danielgergely.kgl:kgl-metadata:${Versions.kgl}")
             }
@@ -85,6 +88,7 @@ kotlin {
             dependencies {
                 implementation(kotlin("test-common"))
                 implementation(kotlin("test-annotations-common"))
+//                implementation("org.koin:koin-test:${Versions.koin}")
                 implementation("spek:spek-dsl:${Versions.spek}")
             }
         }

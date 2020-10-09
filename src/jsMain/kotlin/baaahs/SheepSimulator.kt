@@ -25,7 +25,6 @@ import kotlinx.coroutines.*
 import kotlin.browser.document
 import kotlin.browser.window
 import kotlin.js.Date
-
 class SheepSimulator(val model: Model<*>) {
     @Suppress("unused")
     val facade = Facade()
@@ -190,6 +189,7 @@ class SheepSimulator(val model: Model<*>) {
             get() = this@SheepSimulator.brains.map { it.facade }
     }
 }
+
 
 
 class JsClock : Clock {

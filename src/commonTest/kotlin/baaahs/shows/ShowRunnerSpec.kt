@@ -88,7 +88,9 @@ object ShowRunnerSpec : Spek({
             val fs = FakeFs()
             StageManager(
                 Plugins.safe(), renderEngine, pubSub, Storage(fs, Plugins.safe()), fixtureManager, FakeDmxUniverse(),
-                MovingHeadManager(fs, pubSub, emptyList()), FakeClock(), model, testCoroutineContext
+                { newShow, newShowState, openShow ->
+                    ShowRunner(show, newShowState, openShow, FakeClock(), renderEngine, fixtureManager, autoWirer)
+                }, model, testCoroutineContext
             )
         }
 

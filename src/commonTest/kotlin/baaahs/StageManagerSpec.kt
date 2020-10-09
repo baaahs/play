@@ -3,6 +3,7 @@ package baaahs
 import baaahs.fixtures.FixtureManager
 import baaahs.gl.render.RenderEngine
 import baaahs.io.FakeRemoteFsBackend
+import baaahs.io.Fs
 import baaahs.io.FsClientSideSerializer
 import baaahs.mapper.Storage
 import baaahs.model.Model
@@ -18,6 +19,10 @@ import describe
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Runnable
+import org.koin.core.context.startKoin
+import org.koin.core.context.stopKoin
+import org.koin.dsl.bind
+import org.koin.dsl.module
 import org.spekframework.spek2.Spek
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.expect
@@ -26,33 +31,25 @@ import kotlin.test.expect
 object StageManagerSpec : Spek({
     describe<StageManager> {
         val panel17 = SheepModel.Panel("17")
-        val model = SheepModel().apply { panels = listOf(panel17) } as Model<*>
+        val koin by value {
+            startKoin {
+                modules(
+                    pinkyModule,
+                    TestPlatformModule(
+                        SheepModel().apply { panels = listOf(panel17) }
+                    ).getModule(),
 
-        val plugins by value { Plugins.safe() }
-        val fakeFs by value { FakeFs() }
-        val pubSub by value { TestPubSub() }
-        val fakeGlslContext by value { FakeGlContext() }
-        val renderEngine by value { RenderEngine(fakeGlslContext, ModelInfo.Empty) }
-        val baseShow by value { SampleData.sampleShow }
-
-        val stageManager by value {
-            StageManager(
-                plugins,
-                renderEngine,
-                pubSub.server,
-                Storage(fakeFs, plugins),
-                FixtureManager(renderEngine),
-                FakeDmxUniverse(),
-                MovingHeadManager(fakeFs, pubSub.server, emptyList()),
-                FakeClock(),
-                model,
-                object : CoroutineDispatcher() {
-                    override fun dispatch(context: CoroutineContext, block: Runnable) {
-                        block.run()
+                    module {
+                        single(override = true) { TestPubSub() } bind PubSub::class
                     }
-                }
-            )
+                )
+            }.koin
         }
+
+        val baseShow by value { SampleData.sampleShow }
+        val stageManager by value { koin.get<StageManager>() }
+        val plugins by value { koin.get<Plugins>() }
+        val pubSub by value { koin.get<TestPubSub>() }
         val editingClient by value { pubSub.client("editingClient") }
         val fsClientSideSerializer by value {
             object : FsClientSideSerializer() {
@@ -79,13 +76,14 @@ object StageManagerSpec : Spek({
             editingClientShowEditorState = null
             editingClientChannel.let {}
             otherClientChannel.let {}
-            stageManager.switchTo(baseShow, file = fakeFs.resolve("fake-file.sparkle"))
+            stageManager.switchTo(baseShow, file = koin.get<Fs>().resolve("fake-file.sparkle"))
             pubSub.testCoroutineContext.runAll()
         }
 
-//        afterEachTest {
+        afterEachTest {
+            stopKoin()
 //            expect(emptyList()) { pubSub.testCoroutineContext.exceptions }
-//        }
+        }
 
         it("a pubsub update is received on both clients") {
             expect(listOf("update showEditorState: Sample Show")) { editingClient.log }

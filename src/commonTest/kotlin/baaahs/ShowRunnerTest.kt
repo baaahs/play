@@ -7,21 +7,22 @@ import baaahs.fixtures.IdentifiedFixture
 import baaahs.gadgets.Slider
 import baaahs.gl.render.FixtureRenderPlan
 import baaahs.gl.render.RenderEngine
-import baaahs.mapper.Storage
 import baaahs.model.ModelInfo
 import baaahs.models.SheepModel
 import baaahs.net.TestNetwork
-import baaahs.plugin.Plugins
 import baaahs.show.SampleData
 import baaahs.shows.FakeGlContext
 import baaahs.sim.FakeDmxUniverse
-import baaahs.sim.FakeFs
 import ext.TestCoroutineContext
 import kotlinx.coroutines.InternalCoroutinesApi
-import kotlin.test.BeforeTest
-import kotlin.test.Ignore
-import kotlin.test.Test
-import kotlin.test.expect
+import org.koin.core.Koin
+import org.koin.core.context.startKoin
+import org.koin.core.context.stopKoin
+import org.koin.core.qualifier.named
+import org.koin.dsl.bind
+import org.koin.dsl.module
+import kotlin.coroutines.CoroutineContext
+import kotlin.test.*
 
 @InternalCoroutinesApi
 class ShowRunnerTest {
@@ -29,9 +30,6 @@ class ShowRunnerTest {
     private val network = TestNetwork(0)
     private val serverNetwork = network.link("test")
     private lateinit var server: PubSub.Server
-
-    private val fs = FakeFs()
-
     private lateinit var fixtureRenderPlans: Map<Fixture, FixtureRenderPlan>
     private val surface1Messages = mutableListOf<Pixels>()
     private val surface1Receiver =
@@ -42,29 +40,41 @@ class ShowRunnerTest {
     private lateinit var fakeGlslContext: FakeGlContext
     private lateinit var dmxUniverse: FakeDmxUniverse
     private val dmxEvents = mutableListOf<String>()
-    private val sheepModel = SheepModel().apply { panels = emptyList() }
     private lateinit var stageManager: StageManager
     private lateinit var fixtureManager: FixtureManager
+    private lateinit var koin: Koin
 
     @BeforeTest
     fun setUp() {
         testCoroutineContext = TestCoroutineContext("network")
+
+        koin = startKoin {
+            module { pinkyModule }
+            module { TestPlatformModule().getModule() }
+            module {
+                single<CoroutineContext>(named("pinkyMainContext"), override = true) {
+                    testCoroutineContext
+                }
+            }
+        }.koin
+
         server = PubSub.listen(serverNetwork.startHttpServer(1234), testCoroutineContext)
         fakeGlslContext = FakeGlContext()
         dmxUniverse = FakeDmxUniverse()
         dmxUniverse.reader(1, 1) { dmxEvents.add("dmx frame sent") }
-        val renderEngine = RenderEngine(fakeGlslContext, ModelInfo.Empty)
-        fixtureManager = FixtureManager(renderEngine)
-        val movingHeadManager = MovingHeadManager(fs, server, emptyList())
-        stageManager = StageManager(
-            Plugins.safe(), renderEngine, server, Storage(fs, Plugins.safe()), fixtureManager,
-            dmxUniverse, movingHeadManager, FakeClock(), sheepModel, testCoroutineContext
-        )
+        fixtureManager = koin.get()
+        stageManager = koin.get()
+
         stageManager.switchTo(SampleData.sampleShow)
         fixtureRenderPlans = fixtureManager.getFixtureRenderPlans_ForTestOnly()
         surface1Messages.clear()
         surface2Messages.clear()
         dmxEvents.clear()
+    }
+
+    @AfterTest
+    fun tearDown() {
+        stopKoin()
     }
 
     @Test @Ignore // TODO

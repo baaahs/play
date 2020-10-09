@@ -2,9 +2,12 @@ package baaahs
 
 import baaahs.dmx.DmxDevice
 import baaahs.gl.GlBase
-import baaahs.gl.render.RenderEngine
+import baaahs.gl.GlContext
+import baaahs.io.Fs
 import baaahs.io.RealFs
+import baaahs.model.Model
 import baaahs.net.JvmNetwork
+import baaahs.net.Network
 import baaahs.plugin.BeatLinkPlugin
 import baaahs.plugin.Plugins
 import baaahs.proto.Ports
@@ -16,29 +19,38 @@ import io.ktor.application.*
 import io.ktor.features.*
 import io.ktor.http.content.*
 import io.ktor.routing.*
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ObsoleteCoroutinesApi
 import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.runBlocking
+import org.koin.core.context.startKoin
 import java.io.File
 import java.io.FileNotFoundException
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import kotlin.system.exitProcess
 
 @ObsoleteCoroutinesApi
-fun main(args: Array<String>) {
+fun main(argv: Array<String>) {
     mainBody(PinkyMain::class.simpleName) {
-        PinkyMain(ArgParser(args).parseInto(PinkyMain::Args)).run()
+        val args = ArgParser(argv).parseInto(PinkyMain::Args)
+        try {
+            PinkyMain(args).run()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            exitProcess(1)
+        }
     }
 }
 
 @ObsoleteCoroutinesApi
 class PinkyMain(private val args: Args) {
     private val logger = Logger("PinkyMain")
-    private val pinkyMainDispatcher = newSingleThreadContext("Pinky Main")
 
     fun run() {
+        val pinkyMainDispatcher = newSingleThreadContext("Pinky Main")
         logger.info { "Are you pondering what I'm pondering?" }
 
         GlBase.manager // Need to wake up OpenGL on the main thread.
@@ -69,20 +81,30 @@ class PinkyMain(private val args: Args) {
 
         val plugins = Plugins.safe() + BeatLinkPlugin(beatSource, clock)
 
-        val pinky = runBlocking(pinkyMainDispatcher) {
-            val glslContext = GlBase.manager.createContext()
-            val renderEngine = RenderEngine(glslContext, model)
-            Pinky(
-                model, network, dmxUniverse, beatSource, clock, fs,
-                daddy, soundAnalyzer, switchShowAfterIdleSeconds = args.switchShowAfter,
-                adjustShowAfterIdleSeconds = args.adjustShowAfter,
-                renderEngine = renderEngine,
-                plugins = plugins,
-                pinkyMainDispatcher = pinkyMainDispatcher
+        val koin = startKoin {
+            modules(
+                pinkyModule,
+                object : PlatformModule {
+                    override val model: Model<*> = model
+                    override val network: Network = network
+                    override val dmxUniverse: Dmx.Universe = dmxUniverse
+                    override val beatSource: BeatSource = beatSource
+                    override val clock: Clock = clock
+                    override val fs: Fs = fs
+                    override val firmwareDaddy: FirmwareDaddy = daddy
+                    override val soundAnalyzer: SoundAnalyzer = soundAnalyzer
+                    override val glContext: GlContext = runBlocking(pinkyMainDispatcher) { GlBase.manager.createContext() }
+                    override val plugins: Plugins = plugins
+                    override val pinkyMainDispatcher: CoroutineDispatcher = pinkyMainDispatcher
+                }.getModule()
             )
-        }
 
-        val ktor = (pinky.httpServer as JvmNetwork.RealLink.KtorHttpServer)
+//                switchShowAfterIdleSeconds = args.switchShowAfter,
+//                adjustShowAfterIdleSeconds = args.adjustShowAfter,
+        }.koin
+
+        val pinky = koin.get<Pinky>()
+        val ktor = koin.get<Network.HttpServer>() as JvmNetwork.RealLink.KtorHttpServer
         val resource = Pinky::class.java.classLoader.getResource("baaahs")!!
         if (resource.protocol == "jar") {
             val uri = resource.toURI()!!

@@ -18,6 +18,7 @@ import baaahs.show.Show
 import baaahs.show.Surfaces
 import baaahs.show.buildEmptyShow
 import baaahs.show.live.ActiveSet
+import baaahs.show.live.OpenShow
 import com.soywiz.klock.DateTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
@@ -33,13 +34,11 @@ class StageManager(
     private val storage: Storage,
     private val fixtureManager: FixtureManager,
     private val dmxUniverse: Dmx.Universe,
-    private val movingHeadManager: MovingHeadManager,
-    private val clock: Clock,
+    private val createShowRunner: (newShow: Show?, newShowState: ShowState?, openShow: OpenShow) -> ShowRunner,
     modelInfo: ModelInfo,
     private val coroutineContext: CoroutineContext
 ) : BaseShowPlayer(plugins, modelInfo) {
     val facade = Facade()
-    private val autoWirer = AutoWirer(plugins)
     override val glContext: GlContext
         get() = renderEngine.gl
     private var showRunner: ShowRunner? = null
@@ -116,7 +115,7 @@ class StageManager(
     ) {
         val newShowRunner = newShow?.let {
             val openShow = openShow(newShow, newShowState)
-            ShowRunner(newShow, newShowState, openShow, clock, renderEngine, fixtureManager, autoWirer)
+            createShowRunner(newShow, newShowState, openShow)
         }
 
         showRunner?.release()
